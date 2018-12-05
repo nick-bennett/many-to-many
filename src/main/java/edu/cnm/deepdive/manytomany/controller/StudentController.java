@@ -2,14 +2,17 @@ package edu.cnm.deepdive.manytomany.controller;
 
 import edu.cnm.deepdive.manytomany.model.dao.ProjectRepository;
 import edu.cnm.deepdive.manytomany.model.dao.StudentRepository;
+import edu.cnm.deepdive.manytomany.model.entity.Project;
 import edu.cnm.deepdive.manytomany.model.entity.Student;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.hateoas.EntityLinks;
 import org.springframework.hateoas.ExposesResourceFor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,12 +29,14 @@ public class StudentController {
 
   private StudentRepository studentRepository;
   private ProjectRepository projectRepository;
+  private EntityLinks entityLinks;
 
   @Autowired
   public StudentController(StudentRepository studentRepository,
-      ProjectRepository projectRepository) {
+      ProjectRepository projectRepository, EntityLinks entityLinks) {
     this.studentRepository = studentRepository;
     this.projectRepository = projectRepository;
+    this.entityLinks = entityLinks;
   }
 
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -51,20 +56,55 @@ public class StudentController {
     return studentRepository.findById(studentId).get();
   }
 
-  // TODO Add controller method to delete a Student from the database.
-  //  Hint: Use the get(long) method to retrieve the student, then delete it using the repository.
-  //  (Because of the way the many-to-many relationship is defined in Student vs. Project,
-  //  deleting the student automatically cascades to the intermediate table, but not to Project.)
+  @GetMapping(value = "{studentId}/projects", produces = MediaType.APPLICATION_JSON_VALUE)
+  public List<Project> listProjects(@PathVariable("studentId") long studentId) {
+    return get(studentId).getProjects();
+  }
 
-  // TODO Add controller method to return a list of Project instances for a specified studentId.
+  @DeleteMapping(value = "{studentId}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void delete(@PathVariable("studentId") long studentId) {
+    Student student = get(studentId);
+    studentRepository.delete(student);
+  }
 
-  // TODO Add controller method to add a Project instance to Student with specified studentId.
-  //  Hint: retrieve the Student and Project instances from their respective repositories, then
-  //  add the Project instance to the student's getProjects() list and save the Student instance.
+  @PostMapping(value = "{studentId}/projects", consumes = MediaType.APPLICATION_JSON_VALUE,
+      produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<Project> postProject(@PathVariable("studentId") long studentId,
+      @RequestBody Project partialProject) {
+    Project project = projectRepository.findById(partialProject.getId()).get();
+    Student student = get(studentId);
+    student.getProjects().add(project);
+    studentRepository.save(student);
+    return ResponseEntity.created(
+        entityLinks.linkForSingleResource(Student.class, studentId)
+            .slash("projects")
+            .slash(project.getId())
+            .toUri()
+    ).body(project);
+  }
 
-  // TODO Add controller method to remove a Project instance from Student with specified studentId.
-  //  Hint: load the Project and Student instances from their respective repositories, then remove
-  //  the Project instance from the Student's getProject() list, and save the Student instance.
+  @GetMapping(value = "{studentId}/projects/{projectId}")
+  public Project getProject(@PathVariable("studentId") long studentId,
+      @PathVariable("projectId") long projectId) {
+    Student student = get(studentId);
+    Project project = projectRepository.findById(projectId).get(); // Load entire object from DB.
+    if (student.getProjects().contains(project)) {
+      return project;
+    } else {
+      throw new NoSuchElementException();
+    }
+  }
+
+  @DeleteMapping(value = "{studentId}/projects/{projectId}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteProject(@PathVariable("studentId") long studentId,
+      @PathVariable("projectId") long projectId) {
+    Student student = get(studentId);
+    Project project = getProject(studentId, projectId);
+    student.getProjects().remove(project);
+    studentRepository.save(student);
+  }
 
   @ResponseStatus(value = HttpStatus.NOT_FOUND, reason = "Resource not found")
   @ExceptionHandler(NoSuchElementException.class)
@@ -72,10 +112,3 @@ public class StudentController {
   }
 
 }
-
-
-
-
-
-
-

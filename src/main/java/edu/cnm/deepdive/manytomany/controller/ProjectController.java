@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import javax.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.hateoas.EntityLinks;
 import org.springframework.hateoas.ExposesResourceFor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,12 +30,14 @@ public class ProjectController {
 
   private ProjectRepository projectRepository;
   private StudentRepository studentRepository;
+  private EntityLinks entityLinks;
 
   @Autowired
   public ProjectController(ProjectRepository projectRepository,
-      StudentRepository studentRepository) {
+      StudentRepository studentRepository, EntityLinks entityLinks) {
     this.projectRepository = projectRepository;
     this.studentRepository = studentRepository;
+    this.entityLinks = entityLinks;
   }
 
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -67,21 +70,48 @@ public class ProjectController {
     projectRepository.delete(project);
   }
 
-  // TODO Add controller method to return list of Student instances for a specified projectId.
+  @GetMapping(value = "{projectId}/students", produces = MediaType.APPLICATION_JSON_VALUE)
+  public List<Student> listStudents(@PathVariable("projectId") long projectId) {
+    return get(projectId).getStudents();
+  }
 
   @PostMapping(value = "{projectId}/students", consumes = MediaType.APPLICATION_JSON_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<Project> postStudent(@PathVariable("projectId") long projectId,
+  public ResponseEntity<Student> postStudent(@PathVariable("projectId") long projectId,
       @RequestBody Student partialStudent) {
     Project project = get(projectId);
     Student student = studentRepository.findById(partialStudent.getId()).get();
     student.getProjects().add(project);
     studentRepository.save(student);
-    return ResponseEntity.created(project.getHref()).body(project);
+    return ResponseEntity.created(
+        entityLinks.linkForSingleResource(Project.class, projectId)
+            .slash("students")
+            .slash(student.getId())
+            .toUri()
+    ).body(student);
   }
 
-  // TODO Add controller method to remove a Student instance from project with specified projectId.
-  //  Hint: Remove the project from the student's getProjects() list, and save the student.
+  @GetMapping(value = "{projectId}/students/{studentId}")
+  public Student getStudent(@PathVariable("projectId") long projectId,
+      @PathVariable("studentId") long studentId) {
+    Project project = get(projectId);
+    Student student = studentRepository.findById(studentId).get();
+    if (project.getStudents().contains(student)) {
+      return student;
+    } else {
+      throw new NoSuchElementException();
+    }
+  }
+
+  @DeleteMapping(value = "{projectId}/students/{studentId}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteStudent(@PathVariable("projectId") long projectId,
+      @PathVariable("studentId") long studentId) {
+    Project project = get(projectId);
+    Student student = getStudent(projectId, studentId);
+    student.getProjects().remove(project);
+    studentRepository.save(student);
+  }
 
   @ResponseStatus(value = HttpStatus.NOT_FOUND, reason = "Resource not found")
   @ExceptionHandler(NoSuchElementException.class)
